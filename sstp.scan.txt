@@ -21,9 +21,6 @@ scan_sstp() {
       return
     fi
 
-    MY_IP="$(curl -fsSL https://api.ipify.org 2>/dev/null || echo 'unknown')"
-    echo "[*] Your public IP: $MY_IP"
-
     echo "[*] Testing servers..."
     for item in "${RAW_HOSTS[@]}"; do
       host="${item%%:*}"
