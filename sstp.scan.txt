@@ -3,7 +3,7 @@
 
 # Colors
 RED="\033[31m"; GREEN="\033[32m"; PURPLE="\033[35m"; CYAN="\033[36m"; MAGENTA="\033[35m"; RESET="\033[0m"
-TAG="${PURPLE}┌───────────────┐\n│ hamid-scanner │\n└───────────────┘${RESET}"
+TAG="${PURPLE}┌────────────────────┐\n│ t.me/vpn_proxy66    │\n└────────────────────┘${RESET}"
 
 # ----------------------------------------------------------
 # Option 1 — SSTP Scanner
@@ -42,7 +42,7 @@ scan_doh_dns() {
     LIST_URL="https://raw.githubusercontent.com/10ium/Public-DNS-Collector/main/lists/doh.txt"
     TEST_DOMAIN="example.com"
     TIMEOUT=1
-    PARALLEL=35   # حدود 35 کانکشن همزمان → سریع و پایدار
+    PARALLEL=35
 
     echo -e "${MAGENTA}Downloading DoH list...${RESET}"
     LIST=$(curl -fsS "$LIST_URL") || { echo "Error downloading list"; return; }
@@ -88,7 +88,7 @@ scan_doh_dns() {
     wait
     echo -e "\nDone.\n"
 
-    BEST=$(sort -n "$TMP" | head -n1)   # فقط یک دونه سریع‌ترین
+    BEST=$(sort -n "$TMP" | head -n1)
     rm -f "$TMP"
 
     if [[ -n "$BEST" ]]; then
@@ -111,7 +111,7 @@ scan_doh_dns() {
 while true; do
     clear
     echo -e "${MAGENTA}======================================${RESET}"
-    echo -e "${MAGENTA}        Hamid Scanner Menu            ${RESET}"
+    echo -e "${MAGENTA}        t.me/vpn_proxy66 Menu         ${RESET}"
     echo -e "${MAGENTA}======================================${RESET}"
     echo
     echo -e "${CYAN}1) Scan SSTP${RESET}"
