@@ -6,7 +6,7 @@ RED="\033[31m"; GREEN="\033[32m"; PURPLE="\033[35m"; CYAN="\033[36m"; MAGENTA="\
 TAG="${PURPLE}┌────────────────────┐\n│ t.me/vpn_proxy66    │\n└────────────────────┘${RESET}"
 
 # ----------------------------------------------------------
-# Option 1 — SSTP Scanner
+# Option 1 — SSTP Scanner (Host + Country + Status)
 # ----------------------------------------------------------
 scan_sstp() {
     PAGE_URL="https://ipspeed.info/free-sstp.php"
@@ -27,16 +27,21 @@ scan_sstp() {
       port="${item##*:}"
       [[ "$host" == "$port" ]] && port=443
 
+      # کشور مستقیم از ip-api (خودش resolve می‌کنه)
+      country=$(curl -fsSL "http://ip-api.com/json/$host" | grep -Po '"country":"\K[^"]+' 2>/dev/null)
+      [[ -z "$country" ]] && country="Unknown"
+
+      # تست اتصال واقعی با آی‌پی عمومی خودت
       if timeout 5 bash -c "echo > /dev/tcp/${host}/${port}" 2>/dev/null; then
-        echo -e "${GREEN}[OPEN] ${host}:${port}${RESET}\n$TAG"
+        echo -e "${GREEN}[OPEN] ${host}:${port} — $country${RESET}\n$TAG"
       else
-        echo -e "${RED}[CLOSED] ${host}:${port}${RESET}\n$TAG"
+        echo -e "${RED}[CLOSED] ${host}:${port} — $country${RESET}\n$TAG"
       fi
     done
 }
 
 # ----------------------------------------------------------
-# Option 2 — DoH Scanner (Fast + Progress % + Single Best)
+# Option 2 — DoH Scanner (Fast + Country + Status + Best)
 # ----------------------------------------------------------
 scan_doh_dns() {
     LIST_URL="https://raw.githubusercontent.com/10ium/Public-DNS-Collector/main/lists/doh.txt"
@@ -59,71 +64,59 @@ scan_doh_dns() {
         if [[ "$base" == *"dns-query"* ]]; then
             URL="$base?name=$TEST_DOMAIN&type=A"
         else
-            URL="${base%/}/dns-query?name=$TEST_DOMAIN&type=A"
+            URL="$base/dns-query?name=$TEST_DOMAIN&type=A"
         fi
 
-        RESULT=$(curl -s -H "accept: application/dns-json" --max-time $TIMEOUT -w "\n%{time_total}" "$URL")
-        EXIT=$?
-        [[ $EXIT -ne 0 ]] && return
+        start=$(date +%s%3N)
+        code=$(curl -o /dev/null -s -w "%{http_code}" --max-time $TIMEOUT "$URL")
+        end=$(date +%s%3N)
+        ms=$((end - start))
 
-        TIME=$(echo "$RESULT" | tail -n1)
-        BODY=$(echo "$RESULT" | sed '$d')
-        STATUS=$(echo "$BODY" | jq -r '.Status // 1' 2>/dev/null)
+        # کشور سرور
+        country=$(curl -fsSL "http://ip-api.com/json/$(echo $base | awk -F/ '{print $3}')" | grep -Po '"country":"\K[^"]+' 2>/dev/null)
+        [[ -z "$country" ]] && country="Unknown"
 
-        [[ "$STATUS" == "0" ]] && echo "$TIME $URL" >> "$TMP"
+        if [[ "$code" == "200" ]]; then
+            echo "[OPEN] $base — ${ms}ms — $country" >> "$TMP"
+        else
+            echo "[CLOSED] $base — $country" >> "$TMP"
+        fi
+
+        current=$((current+1))
+        percent=$((current*100/TOTAL))
+        echo -ne "Progress: $percent% ($current/$TOTAL)\r"
     }
 
-    for base in $LIST; do
-        ((current++))
-        PERCENT=$(( current * 100 / TOTAL ))
-        echo -ne "Progress: $PERCENT%   \r"
+    export -f test_one
+    export TMP TEST_DOMAIN TIMEOUT
 
-        test_one "$base" &
+    echo "$LIST" | xargs -n1 -P$PARALLEL bash -c 'test_one "$@"' _
 
-        while (( $(jobs -r | wc -l) >= PARALLEL )); do
-            sleep 0.05
-        done
+    echo -e "\n${CYAN}Results:${RESET}"
+    grep "\[OPEN\]" "$TMP" | sort -nk3 | head -n1 | while read line; do
+        echo -e "${GREEN}$line${RESET}\n$TAG"
+    done
+    grep "\[CLOSED\]" "$TMP" | while read line; do
+        echo -e "${RED}$line${RESET}\n$TAG"
     done
 
-    wait
-    echo -e "\nDone.\n"
-
-    BEST=$(sort -n "$TMP" | head -n1)
     rm -f "$TMP"
-
-    if [[ -n "$BEST" ]]; then
-        BEST_TIME=$(echo "$BEST" | awk '{print $1}')
-        BEST_URL=$(echo "$BEST" | awk '{print $2}')
-
-        echo -e "${GREEN}Fastest DoH:${RESET}"
-        echo -e "${GREEN}$BEST_URL${RESET}"
-        echo -e "${GREEN}Latency: $BEST_TIME sec${RESET}"
-        echo
-        echo "curl -H 'accept: application/dns-json' \"$BEST_URL\""
-    else
-        echo "No working DoH found."
-    fi
 }
 
 # ----------------------------------------------------------
-# MENU
+# Menu
 # ----------------------------------------------------------
 while true; do
-    clear
-    echo -e "${MAGENTA}======================================${RESET}"
-    echo -e "${MAGENTA}        t.me/vpn_proxy66 Menu         ${RESET}"
-    echo -e "${MAGENTA}======================================${RESET}"
-    echo
-    echo -e "${CYAN}1) Scan SSTP${RESET}"
-    echo -e "${CYAN}2) Scan DoH DNS${RESET}"
-    echo -e "${CYAN}0) Exit${RESET}"
-    echo
-    read -p "Choose option: " opt
+    echo -e "\n${CYAN}Hamid Scanner Menu${RESET}"
+    echo "1) SSTP Scanner"
+    echo "2) DoH Scanner"
+    echo "3) Exit"
+    read -rp "Choose option: " opt
 
     case $opt in
-        1) scan_sstp; read -p "Press Enter...";;
-        2) scan_doh_dns; read -p "Press Enter...";;
-        0) exit ;;
-        *) echo "Invalid choice"; sleep 1 ;;
+        1) scan_sstp ;;
+        2) scan_doh_dns ;;
+        3) exit 0 ;;
+        *) echo "Invalid option" ;;
     esac
 done
