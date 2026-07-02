@@ -1,9 +1,15 @@
+#!/data/data/com.termux/files/usr/bin/bash
 
-#!/usr/bin/env bash
-# Hamid Scanner Menu: SSTP + DoH
+RED="\033[31m"
+GREEN="\033[32m"
+ORANGE="\033[33m"
+CYAN="\033[36m"
+MAGENTA="\033[35m"
+RESET="\033[0m"
 
-RED="\033[31m"; GREEN="\033[32m"; PURPLE="\033[35m"; CYAN="\033[36m"; MAGENTA="\033[35m"; RESET="\033[0m"
-TAG="${PURPLE}┌────────────────────┐\n│ t.me/ShadowProxy66    │\n└────────────────────┘${RESET}"
+TAG="${MAGENTA}┌────────────────────┐
+│ telegram👉@ShadowProxy66 │
+└────────────────────┘${RESET}"
 
 # ----------------------------------------------------------
 # GeoIP Country Lookup
@@ -46,80 +52,67 @@ scan_sstp() {
 }
 
 # ----------------------------------------------------------
-# Option 2 — DoH Scanner (Fast + Progress % + Single Best)
+# Option 2 — DoH Scanner (Your New Script)
 # ----------------------------------------------------------
-scan_doh_dns() {
-    LIST_URL="https://raw.githubusercontent.com/10ium/Public-DNS-Collector/main/lists/doh.txt"
-    TEST_DOMAIN="example.com"
-    TIMEOUT=1
-    PARALLEL=35
+scan_doh() {
 
-    echo -e "${MAGENTA}Downloading DoH list...${RESET}"
-    LIST=$(curl -fsS "$LIST_URL") || { echo "Error downloading list"; return; }
+PAGE_URL="https://github.com/curl/curl/wiki/DNS-over-HTTPS#publicly-available-servers"
+RESULTS="$HOME/.cache/doh_results.txt"
 
-    LIST=$(echo "$LIST" | grep -v '^$')
-    TOTAL=$(echo "$LIST" | wc -l)
-    echo "Total: $TOTAL servers"
+rm -f "$RESULTS"
 
-    TMP=$(mktemp)
-    current=0
+echo "[+] Fetching DoH list..."
+RAW=$(curl -sL "$PAGE_URL")
 
-    test_one() {
-        base="$1"
-        if [[ "$base" == *"dns-query"* ]]; then
-            URL="$base?name=$TEST_DOMAIN&type=A"
-        else
-            URL="${base%/}/dns-query?name=$TEST_DOMAIN&type=A"
-        fi
+DNS_LIST=($(printf '%s\n' "$RAW" | grep -oE 'https://[^ \"'\''()]+dns-query' | sort -u))
+TOTAL=${#DNS_LIST[@]}
 
-        RESULT=$(curl -s -H "accept: application/dns-json" --max-time $TIMEOUT -w "\n%{time_total}" "$URL")
-        EXIT=$?
-        [[ $EXIT -ne 0 ]] && return
+if [ "$TOTAL" -eq 0 ]; then
+    echo "[!] No DoH servers found!"
+    return
+fi
 
-        TIME=$(echo "$RESULT" | tail -n1)
-        BODY=$(echo "$RESULT" | sed '$d')
-        STATUS=$(echo "$BODY" | jq -r '.Status // 1' 2>/dev/null)
+echo "[+] Running parallel latency tests..."
+BEST_DNS=""
+BEST_TIME=999999
+COUNT=0
 
-        if [[ "$STATUS" == "0" ]]; then
-            # Extract host for GeoIP
-            host=$(echo "$base" | sed -E 's#https?://([^/]+).*#\1#')
-            country=$(get_country "$host")
-            echo "$TIME $URL $country" >> "$TMP"
-        fi
-    }
+for DNS in "${DNS_LIST[@]}"; do
+(
+    START=$(date +%s%3N)
+    curl -s --http2 --max-time 2 -H 'accept: application/dns-json' "${DNS}?name=example.com&type=A" > /dev/null
+    END=$(date +%s%3N)
+    LATENCY=$((END - START))
 
-    for base in $LIST; do
-        ((current++))
-        PERCENT=$(( current * 100 / TOTAL ))
-        echo -ne "Progress: $PERCENT%   \r"
+    echo "$DNS $LATENCY" >> "$RESULTS"
+) &
+done
 
-        test_one "$base" &
+# Live progress percentage
+while [ "$COUNT" -lt "$TOTAL" ]; do
+    COUNT=$(wc -l < "$RESULTS" 2>/dev/null)
+    PERCENT=$((COUNT * 100 / TOTAL))
+    echo -ne "🔄 Progress: ${PERCENT}% \r"
+    sleep 0.1
+done
 
-        while (( $(jobs -r | wc -l) >= PARALLEL )); do
-            sleep 0.05
-        done
-    done
+echo ""
 
-    wait
-    echo -e "\nDone.\n"
-
-    BEST=$(sort -n "$TMP" | head -n1)
-    rm -f "$TMP"
-
-    if [[ -n "$BEST" ]]; then
-        BEST_TIME=$(echo "$BEST" | awk '{print $1}')
-        BEST_URL=$(echo "$BEST" | awk '{print $2}')
-        BEST_COUNTRY=$(echo "$BEST" | awk '{print $3}')
-
-        echo -e "${GREEN}Fastest DoH:${RESET}"
-        echo -e "${GREEN}$BEST_URL${RESET}"
-        echo -e "${GREEN}Country: $BEST_COUNTRY${RESET}"
-        echo -e "${GREEN}Latency: $BEST_TIME sec${RESET}"
-        echo
-        echo "curl -H 'accept: application/dns-json' \"$BEST_URL\""
-    else
-        echo "No working DoH found."
+# Determine fastest DoH
+while read -r DNS LAT; do
+    if [ "$LAT" -lt "$BEST_TIME" ] && [ "$LAT" -gt 0 ]; then
+        BEST_TIME=$LAT
+        BEST_DNS=$DNS
     fi
+done < "$RESULTS"
+
+echo "=============================="
+echo -e "🔥 Fastest DNS-over-HTTPS server:"
+echo -e "➡️ ${GREEN}$BEST_DNS${RESET}"
+echo -e "⏱ Latency: ${GREEN}$BEST_TIME ms${RESET}"
+echo "=============================="
+
+rm -f "$RESULTS"
 }
 
 # ----------------------------------------------------------
@@ -128,10 +121,10 @@ scan_doh_dns() {
 while true; do
     clear
     echo -e "${MAGENTA}======================================${RESET}"
-    echo -e "${MAGENTA}         Menu         ${RESET}"
+    echo -e "${MAGENTA}         Hamid Scanner Menu           ${RESET}"
     echo -e "${MAGENTA}======================================${RESET}"
     echo
-    echo -e "${CYAN}1) Scan SSTP${RESET}"
+    echo -e "${ORANGE}1) Scan SSTP${RESET}"
     echo -e "${CYAN}2) Scan DoH DNS${RESET}"
     echo -e "${CYAN}0) Exit${RESET}"
     echo
@@ -139,7 +132,7 @@ while true; do
 
     case $opt in
         1) scan_sstp; read -p "Press Enter...";;
-        2) scan_doh_dns; read -p "Press Enter...";;
+        2) scan_doh; read -p "Press Enter...";;
         0) exit ;;
         *) echo "Invalid choice"; sleep 1 ;;
     esac
