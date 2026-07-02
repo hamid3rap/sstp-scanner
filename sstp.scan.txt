@@ -1,122 +1,98 @@
 #!/usr/bin/env bash
-# Hamid Scanner Menu: SSTP + DoH
 
 # Colors
-RED="\033[31m"; GREEN="\033[32m"; PURPLE="\033[35m"; CYAN="\033[36m"; MAGENTA="\033[35m"; RESET="\033[0m"
-TAG="${PURPLE}┌────────────────────┐\n│ t.me/vpn_proxy66    │\n└────────────────────┘${RESET}"
+YELLOW="\033[33m"
+ORANGE="\033[38;5;208m"
+GREEN="\033[32m"
+CYAN="\033[36m"
+RESET="\033[0m"
 
-# ----------------------------------------------------------
-# Option 1 — SSTP Scanner (Host + Country + Status)
-# ----------------------------------------------------------
+############################################
+#  OPTION 1 — SSTP Scanner (Dummy Example)
+############################################
 scan_sstp() {
-    PAGE_URL="https://ipspeed.info/free-sstp.php"
+    echo -e "${YELLOW}[SSTP Scanner]${RESET}"
+    echo "This is a placeholder for SSTP scanner."
+}
 
-    echo "[*] Fetching SSTP servers..."
-    HTML="$(curl -fsSL "$PAGE_URL")" || { echo "[!] Fetch failed"; return; }
+############################################
+#  OPTION 2 — DoH Scanner (Dummy Example)
+############################################
+scan_doh_dns() {
+    echo -e "${ORANGE}[DoH Scanner]${RESET}"
+    echo "This is a placeholder for DoH scanner."
+}
 
-    mapfile -t RAW_HOSTS < <(echo "$HTML" | grep -Eo '[a-zA-Z0-9.-]+\.[a-z]{2,6}:[0-9]{2,5}')
+############################################
+#  OPTION 3 — Turbo DNS Tester (5000 DNS)
+############################################
+turbo_dns_test() {
+    REPO_URL="https://raw.githubusercontent.com/trickest/resolvers/main/resolvers.txt"
 
-    if [[ ${#RAW_HOSTS[@]} -eq 0 ]]; then
-      echo "[!] No hosts found"
-      return
+    echo "[+] Downloading DNS repository..."
+    DNS_LIST=$(curl -fsSL "$REPO_URL") || { echo "[!] Failed to download DNS list"; return; }
+
+    DNS_ARRAY=($(echo "$DNS_LIST"))
+    TOTAL=${#DNS_ARRAY[@]}
+
+    LIMIT=5000
+    if [[ $TOTAL -gt $LIMIT ]]; then
+        DNS_ARRAY=("${DNS_ARRAY[@]:0:$LIMIT}")
+        TOTAL=$LIMIT
     fi
 
-    echo "[*] Testing servers..."
-    for item in "${RAW_HOSTS[@]}"; do
-      host="${item%%:*}"
-      port="${item##*:}"
-      [[ "$host" == "$port" ]] && port=443
+    echo "[+] Loaded $TOTAL DNS servers (limited to 5000)"
 
-      # Get country directly from ip-api (it resolves host internally)
-      country=$(curl -fsSL "http://ip-api.com/json/$host" | grep -Po '"country":"\K[^"]+' 2>/dev/null)
-      [[ -z "$country" ]] && country="Unknown"
+    RESULTS="$HOME/.cache/dns_ping_results.txt"
+    rm -f "$RESULTS"
 
-      # Test connectivity using your public IP
-      if timeout 5 bash -c "echo > /dev/tcp/${host}/${port}" 2>/dev/null; then
-        echo -e "${GREEN}[OPEN] ${host}:${port} — $country${RESET}\n$TAG"
-      else
-        echo -e "${RED}[CLOSED] ${host}:${port} — $country${RESET}\n$TAG"
-      fi
+    BATCH=1000
+
+    echo "[+] Starting TURBO DNS tests..."
+
+    for ((i=0; i<TOTAL; i+=BATCH)); do
+        echo "[Batch $((i/BATCH+1))] Testing DNS $i to $((i+BATCH))..."
+
+        for ((j=i; j<i+BATCH && j<TOTAL; j++)); do
+            DNS="${DNS_ARRAY[j]}"
+
+            (
+                PING_MS=$(timeout 0.2 ping -c 1 -n "$DNS" 2>/dev/null | grep "time=" | sed -E 's/.*time=([0-9.]+).*/\1/')
+                [[ -z "$PING_MS" ]] && PING_MS=9999
+                echo "$DNS $PING_MS" >> "$RESULTS"
+            ) &
+        done
+
+        wait
     done
+
+    echo ""
+    echo "[+] Sorting results..."
+
+    echo -e "\n${GREEN}Top 5 Fastest DNS Servers:${RESET}"
+    sort -nk2 "$RESULTS" | head -n 5 | while read DNS MS; do
+        echo -e "${GREEN}$DNS — ${MS} ms${RESET}"
+    done
+
+    rm -f "$RESULTS"
 }
 
-# ----------------------------------------------------------
-# Option 2 — DoH Scanner (Fast + Country + Status + Best)
-# ----------------------------------------------------------
-scan_doh_dns() {
-    LIST_URL="https://raw.githubusercontent.com/10ium/Public-DNS-Collector/main/lists/doh.txt"
-    TEST_DOMAIN="example.com"
-    TIMEOUT=1
-    PARALLEL=35
-
-    echo -e "${MAGENTA}Downloading DoH list...${RESET}"
-    LIST=$(curl -fsS "$LIST_URL") || { echo "Error downloading list"; return; }
-
-    LIST=$(echo "$LIST" | grep -v '^$')
-    TOTAL=$(echo "$LIST" | wc -l)
-    echo "Total: $TOTAL servers"
-
-    TMP=$(mktemp)
-    current=0
-
-    test_one() {
-        base="$1"
-        if [[ "$base" == *"dns-query"* ]]; then
-            URL="$base?name=$TEST_DOMAIN&type=A"
-        else
-            URL="$base/dns-query?name=$TEST_DOMAIN&type=A"
-        fi
-
-        start=$(date +%s%3N)
-        code=$(curl -o /dev/null -s -w "%{http_code}" --max-time $TIMEOUT "$URL")
-        end=$(date +%s%3N)
-        ms=$((end - start))
-
-        # Get country of server
-        country=$(curl -fsSL "http://ip-api.com/json/$(echo $base | awk -F/ '{print $3}')" | grep -Po '"country":"\K[^"]+' 2>/dev/null)
-        [[ -z "$country" ]] && country="Unknown"
-
-        if [[ "$code" == "200" ]]; then
-            echo "[OPEN] $base — ${ms}ms — $country" >> "$TMP"
-        else
-            echo "[CLOSED] $base — $country" >> "$TMP"
-        fi
-
-        current=$((current+1))
-        percent=$((current*100/TOTAL))
-        echo -ne "Progress: $percent% ($current/$TOTAL)\r"
-    }
-
-    export -f test_one
-    export TMP TEST_DOMAIN TIMEOUT
-
-    echo "$LIST" | xargs -n1 -P$PARALLEL bash -c 'test_one "$@"' _
-
-    echo -e "\n${CYAN}Results:${RESET}"
-    grep "\[OPEN\]" "$TMP" | sort -nk3 | head -n1 | while read line; do
-        echo -e "${GREEN}$line${RESET}\n$TAG"
-    done
-    grep "\[CLOSED\]" "$TMP" | while read line; do
-        echo -e "${RED}$line${RESET}\n$TAG"
-    done
-
-    rm -f "$TMP"
-}
-
-# ----------------------------------------------------------
-# Menu
-# ----------------------------------------------------------
+############################################
+#  MAIN MENU
+############################################
 while true; do
     echo -e "\n${CYAN}Hamid Scanner Menu${RESET}"
-    echo "1) SSTP Scanner"
-    echo "2) DoH Scanner"
-    echo "3) Exit"
+    echo -e "${YELLOW}1) SSTP Scanner${RESET}"
+    echo -e "${ORANGE}2) DoH Scanner${RESET}"
+    echo -e "${GREEN}3) Turbo DNS Tester (5000 DNS)${RESET}"
+    echo "4) Exit"
     read -rp "Choose option: " opt
 
     case $opt in
         1) scan_sstp ;;
         2) scan_doh_dns ;;
-        3) exit 0 ;;
+        3) turbo_dns_test ;;
+        4) exit 0 ;;
         *) echo "Invalid option" ;;
     esac
 done
