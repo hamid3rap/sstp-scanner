@@ -1,98 +1,56 @@
 #!/usr/bin/env bash
 
-# Colors
-YELLOW="\033[33m"
-ORANGE="\033[38;5;208m"
 GREEN="\033[32m"
+RED="\033[31m"
 CYAN="\033[36m"
 RESET="\033[0m"
 
-############################################
-#  OPTION 1 — SSTP Scanner (Dummy Example)
-############################################
-scan_sstp() {
-    echo -e "${YELLOW}[SSTP Scanner]${RESET}"
-    echo "This is a placeholder for SSTP scanner."
+echo -e "${CYAN}[+] Fetching SSTP servers from ipspeed.info...${RESET}"
+
+# Fetch SSTP links from the website
+RAW=$(curl -s https://ipspeed.info)
+
+# Extract SSTP links
+LIST=$(echo "$RAW" | grep -Eo 'sstp://[A-Za-z0-9\.\-_:]+' | sort -u)
+
+if [[ -z "$LIST" ]]; then
+    echo -e "${RED}[!] No SSTP links found.${RESET}"
+    exit 1
+fi
+
+echo -e "${CYAN}[+] Found $(echo "$LIST" | wc -l) SSTP servers${RESET}"
+echo ""
+
+# Function to get country name
+get_country() {
+    curl -s "https://ipapi.co/$1/country_name/"
 }
 
-############################################
-#  OPTION 2 — DoH Scanner (Dummy Example)
-############################################
-scan_doh_dns() {
-    echo -e "${ORANGE}[DoH Scanner]${RESET}"
-    echo "This is a placeholder for DoH scanner."
-}
+# Process each SSTP server
+echo "$LIST" | while read -r LINK; do
+    HOSTPORT=$(echo "$LINK" | sed 's/sstp:\/\///')
+    HOST=$(echo "$HOSTPORT" | cut -d: -f1)
+    PORT=$(echo "$HOSTPORT" | cut -d: -f2)
 
-############################################
-#  OPTION 3 — Turbo DNS Tester (5000 DNS)
-############################################
-turbo_dns_test() {
-    REPO_URL="https://raw.githubusercontent.com/trickest/resolvers/main/resolvers.txt"
+    # Test port
+    timeout 1 bash -c "echo > /dev/tcp/$HOST/$PORT" 2>/dev/null
+    STATUS=$?
 
-    echo "[+] Downloading DNS repository..."
-    DNS_LIST=$(curl -fsSL "$REPO_URL") || { echo "[!] Failed to download DNS list"; return; }
+    COUNTRY=$(get_country "$HOST")
 
-    DNS_ARRAY=($(echo "$DNS_LIST"))
-    TOTAL=${#DNS_ARRAY[@]}
+    echo "----------------------------------------"
+    echo " SSTP Server:"
+    echo " $LINK"
+    echo " Country: $COUNTRY"
+    echo " Port: $PORT"
 
-    LIMIT=5000
-    if [[ $TOTAL -gt $LIMIT ]]; then
-        DNS_ARRAY=("${DNS_ARRAY[@]:0:$LIMIT}")
-        TOTAL=$LIMIT
+    if [[ $STATUS -eq 0 ]]; then
+        echo -e " Status: ${GREEN}OPEN (Working)${RESET}"
+    else
+        echo -e " Status: ${RED}CLOSED${RESET}"
     fi
 
-    echo "[+] Loaded $TOTAL DNS servers (limited to 5000)"
-
-    RESULTS="$HOME/.cache/dns_ping_results.txt"
-    rm -f "$RESULTS"
-
-    BATCH=1000
-
-    echo "[+] Starting TURBO DNS tests..."
-
-    for ((i=0; i<TOTAL; i+=BATCH)); do
-        echo "[Batch $((i/BATCH+1))] Testing DNS $i to $((i+BATCH))..."
-
-        for ((j=i; j<i+BATCH && j<TOTAL; j++)); do
-            DNS="${DNS_ARRAY[j]}"
-
-            (
-                PING_MS=$(timeout 0.2 ping -c 1 -n "$DNS" 2>/dev/null | grep "time=" | sed -E 's/.*time=([0-9.]+).*/\1/')
-                [[ -z "$PING_MS" ]] && PING_MS=9999
-                echo "$DNS $PING_MS" >> "$RESULTS"
-            ) &
-        done
-
-        wait
-    done
-
+    echo " https://t.me/ShadowProxy66"
+    echo "----------------------------------------"
     echo ""
-    echo "[+] Sorting results..."
-
-    echo -e "\n${GREEN}Top 5 Fastest DNS Servers:${RESET}"
-    sort -nk2 "$RESULTS" | head -n 5 | while read DNS MS; do
-        echo -e "${GREEN}$DNS — ${MS} ms${RESET}"
-    done
-
-    rm -f "$RESULTS"
-}
-
-############################################
-#  MAIN MENU
-############################################
-while true; do
-    echo -e "\n${CYAN}Hamid Scanner Menu${RESET}"
-    echo -e "${YELLOW}1) SSTP Scanner${RESET}"
-    echo -e "${ORANGE}2) DoH Scanner${RESET}"
-    echo -e "${GREEN}3) Turbo DNS Tester (5000 DNS)${RESET}"
-    echo "4) Exit"
-    read -rp "Choose option: " opt
-
-    case $opt in
-        1) scan_sstp ;;
-        2) scan_doh_dns ;;
-        3) turbo_dns_test ;;
-        4) exit 0 ;;
-        *) echo "Invalid option" ;;
-    esac
 done
