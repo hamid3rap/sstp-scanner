@@ -52,13 +52,15 @@ scan_sstp() {
 }
 
 # ----------------------------------------------------------
-# Option 2 — DoH Scanner (Your New Script)
+# Option 2 — DoH Scanner (Optimized)
 # ----------------------------------------------------------
 scan_doh() {
 
 PAGE_URL="https://github.com/curl/curl/wiki/DNS-over-HTTPS#publicly-available-servers"
 RESULTS="$HOME/.cache/doh_results.txt"
 
+# Ensure cache directory exists
+mkdir -p "$(dirname "$RESULTS")"
 rm -f "$RESULTS"
 
 echo "[+] Fetching DoH list..."
@@ -84,11 +86,11 @@ for DNS in "${DNS_LIST[@]}"; do
     END=$(date +%s%3N)
     LATENCY=$((END - START))
 
-    echo "$DNS $LATENCY" >> "$RESULTS"
+    printf "%s %s\n" "$DNS" "$LATENCY" >> "$RESULTS"
 ) &
 done
 
-# Live progress percentage
+# Live progress
 while [ "$COUNT" -lt "$TOTAL" ]; do
     COUNT=$(wc -l < "$RESULTS" 2>/dev/null)
     PERCENT=$((COUNT * 100 / TOTAL))
@@ -121,7 +123,7 @@ rm -f "$RESULTS"
 while true; do
     clear
     echo -e "${MAGENTA}======================================${RESET}"
-    echo -e "${MAGENTA}         Hamid Scanner Menu           ${RESET}"
+    echo -e "${MAGENTA}        💯  FREE IRAN 💯           ${RESET}"
     echo -e "${MAGENTA}======================================${RESET}"
     echo
     echo -e "${ORANGE}1) Scan SSTP${RESET}"
