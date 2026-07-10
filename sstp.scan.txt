@@ -8,7 +8,7 @@ MAGENTA="\033[35m"
 RESET="\033[0m"
 
 TAG="${MAGENTA}┌────────────────────┐
-│ telegram👉@ShadowProxy66 │
+│ 🔝t.me/ShadowProxy66🔝 │
 └────────────────────┘${RESET}"
 
 # ----------------------------------------------------------
@@ -123,7 +123,7 @@ rm -f "$RESULTS"
 while true; do
     clear
     echo -e "${MAGENTA}======================================${RESET}"
-    echo -e "${MAGENTA}        💯  FREE IRAN 💯           ${RESET}"
+    echo -e "${MAGENTA}          hamid scanner menu            ${RESET}"
     echo -e "${MAGENTA}======================================${RESET}"
     echo
     echo -e "${ORANGE}1) Scan SSTP${RESET}"
