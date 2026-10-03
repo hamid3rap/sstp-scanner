@@ -1,244 +1,147 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
-RED="\033[31m"
-GREEN="\033[32m"
-ORANGE="\033[33m"
-CYAN="\033[36m"
-MAGENTA="\033[35m"
-RESET="\033[0m"
-YELLOW="\033[1;33m"
+URL='http://150.40.105.8:61446/'
 
-TAG="${MAGENTA}┌────────────────────┐
-│ t.me/ShadowProxy66 │
-└────────────────────┘${RESET}"
+GREEN='\033[1;32m'
+RED='\033[1;31m'
+YELLOW='\033[1;33m'
+CYAN='\033[1;36m'
+WHITE='\033[1;37m'
+RESET='\033[0m'
 
-# ----------------------------------------------------------
-# GeoIP Country Lookup
-# ----------------------------------------------------------
-get_country() {
-    ip="$1"
-    curl -fsSL "http://ip-api.com/json/$ip" | jq -r '.country // "Unknown"'
-}
+TMP="$HOME/sstp_list.html"
 
-# ----------------------------------------------------------
-# Option 1 — SSTP Scanner
-# ----------------------------------------------------------
-scan_sstp() {
-    PAGE_URL="https://ipspeed.info/free-sstp.php"
-
-    echo "[*] Fetching SSTP servers..."
-    HTML="$(curl -fsSL "$PAGE_URL")" || { echo "[!] Fetch failed"; return; }
-
-    mapfile -t RAW_HOSTS < <(echo "$HTML" | grep -Eo '[a-zA-Z0-9.-]+\.[a-z]{2,6}:[0-9]{2,5}')
-
-    if [[ ${#RAW_HOSTS[@]} -eq 0 ]]; then
-      echo "[!] No hosts found"
-      return
-    fi
-
-    echo "[*] Testing servers..."
-    for item in "${RAW_HOSTS[@]}"; do
-      host="${item%%:*}"
-      port="${item##*:}"
-      [[ "$host" == "$port" ]] && port=443
-
-      country=$(get_country "$host")
-
-      if timeout 5 bash -c "echo > /dev/tcp/${host}/${port}" 2>/dev/null; then
-        echo -e "${GREEN}[OPEN] ${host}:${port} (${country})${RESET}\n$TAG"
-      else
-        echo -e "${RED}[CLOSED] ${host}:${port} (${country})${RESET}\n$TAG"
-      fi
-    done
-}
-
-# ----------------------------------------------------------
-# Option 2 — DoH Scanner
-# ----------------------------------------------------------
-scan_doh() {
-
-PAGE_URL="https://github.com/curl/curl/wiki/DNS-over-HTTPS#publicly-available-servers"
-RESULTS="$HOME/.cache/doh_results.txt"
-
-mkdir -p "$(dirname "$RESULTS")"
-rm -f "$RESULTS"
-
-echo "[+] Fetching DoH list..."
-RAW=$(curl -sL "$PAGE_URL")
-
-DNS_LIST=($(printf '%s\n' "$RAW" | grep -oE 'https://[^ \"'\''()]+dns-query' | sort -u))
-TOTAL=${#DNS_LIST[@]}
-
-if [ "$TOTAL" -eq 0 ]; then
-    echo "[!] No DoH servers found!"
-    return
-fi
-
-echo "[+] Running parallel latency tests..."
-BEST_DNS=""
-BEST_TIME=999999
-COUNT=0
-
-for DNS in "${DNS_LIST[@]}"; do
-(
-    START=$(date +%s%3N)
-    curl -s --http2 --max-time 2 -H 'accept: application/dns-json' "${DNS}?name=example.com&type=A" > /dev/null
-    END=$(date +%s%3N)
-    LATENCY=$((END - START))
-
-    printf "%s %s\n" "$DNS" "$LATENCY" >> "$RESULTS"
-) &
-done
-
-while [ "$COUNT" -lt "$TOTAL" ]; do
-    COUNT=$(wc -l < "$RESULTS" 2>/dev/null)
-    PERCENT=$((COUNT * 100 / TOTAL))
-    echo -ne "🔄 Progress: ${PERCENT}% \r"
-    sleep 0.1
-done
-
-echo ""
-
-while read -r DNS LAT; do
-    if [ "$LAT" -lt "$BEST_TIME" ] && [ "$LAT" -gt 0 ]; then
-        BEST_TIME=$LAT
-        BEST_DNS=$DNS
-    fi
-done < "$RESULTS"
-
-echo "=============================="
-echo -e "🔥 Fastest DNS-over-HTTPS server:"
-echo -e "➡️ ${GREEN}$BEST_DNS${RESET}"
-echo -e "⏱ Latency: ${GREEN}$BEST_TIME ms${RESET}"
-echo "=============================="
-
-rm -f "$RESULTS"
-}
-
-# ----------------------------------------------------------
-# Option 3 — L2TP Scanner
-# ----------------------------------------------------------
-scan_l2tp() {
-
-URL="https://sstp.mehdi-hoore.workers.dev/"
+clear
 
 echo "=============================================="
-echo "           L2TP/IPsec SERVER CHECKER"
+echo "          @vpn_proxy66"
+echo "          SSTP SERVER SCANNER"
 echo "=============================================="
 echo
 
-echo -e "${YELLOW}[*] Downloading server list...${RESET}"
+for CMD in curl grep sed awk sort timeout; do
+    if ! command -v "$CMD" >/dev/null 2>&1; then
+        echo -e "${RED}[!] Missing: $CMD${RESET}"
+        echo
+        echo "Run:"
+        echo "pkg update"
+        echo "pkg install curl grep sed gawk coreutils"
+        exit 1
+    fi
+done
 
-HTML=$(curl -fsSL --max-time 20 "$URL" 2>/dev/null)
+echo -e "${CYAN}[*] Downloading server list...${RESET}"
 
-if [ -z "$HTML" ]; then
+if ! curl \
+    -L \
+    --silent \
+    --show-error \
+    --fail \
+    --connect-timeout 15 \
+    --max-time 40 \
+    -A "Mozilla/5.0" \
+    "$URL" \
+    -o "$TMP"
+then
+    echo
     echo -e "${RED}[!] Failed to download server list.${RESET}"
-    return
+    rm -f "$TMP"
+    read -p "Press Enter..."
+    exit 1
 fi
 
-echo -e "${GREEN}[+] Download successful.${RESET}"
+if [ ! -s "$TMP" ]; then
+    echo -e "${RED}[!] Empty server list.${RESET}"
+    rm -f "$TMP"
+    read -p "Press Enter..."
+    exit 1
+fi
+
+echo -e "${GREEN}[+] Server list downloaded.${RESET}"
 echo
 
-ROWS=$(printf '%s' "$HTML" |
-    sed 's/<tr/\n<tr/g' |
-    sed 's#</tr>#</tr>\n#g')
+mapfile -t SERVERS < <(
+    grep -Eo \
+    '[A-Za-z0-9.-]+\.opengw\.net(:[0-9]{1,5})?' \
+    "$TMP" |
+    sort -u
+)
 
-FOUND=0
+if [ "${#SERVERS[@]}" -eq 0 ]; then
+    echo
+    echo -e "${RED}[!] No SSTP servers found.${RESET}"
+    rm -f "$TMP"
+    read -p "Press Enter..."
+    exit 1
+fi
 
-echo -e "${CYAN}[*] Searching for L2TP/IPsec servers...${RESET}"
+echo -e "${GREEN}[+] Found ${#SERVERS[@]} servers.${RESET}"
 echo
 
-while IFS= read -r ROW; do
+ONLINE=0
+TOTAL=0
 
-    [ -z "$ROW" ] && continue
+for SERVER in "${SERVERS[@]}"; do
 
-    if ! printf '%s' "$ROW" | grep -qi 'howto_l2tp\.aspx'; then
-        continue
-    fi
+    TOTAL=$((TOTAL + 1))
 
-    HOST=$(printf '%s' "$ROW" |
-        grep -Eo '(vpn[0-9]+|public-vpn-[0-9]+)\.opengw\.net' |
-        head -n 1)
-
-    IP=$(printf '%s' "$ROW" |
-        grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' |
-        head -n 1)
-
-    if [ -z "$HOST" ] || [ -z "$IP" ]; then
-        continue
-    fi
-
-    FOUND=$((FOUND + 1))
-
-    echo -e "${YELLOW}Creator @vpn_proxy66${RESET}"
-    echo -e "${CYAN}L2TP SERVER${RESET}"
-    echo "Host : $HOST"
-    echo "IP   : $IP"
-
-    PING=$(ping -c 1 -W 2 "$IP" 2>/dev/null |
-        grep -oE 'time=[0-9.]+ ?ms' |
-        head -n 1)
-
-    if [ -n "$PING" ]; then
-        echo -e "Ping : ${GREEN}$PING${RESET}"
-        echo -e "Status: ${GREEN}ONLINE${RESET}"
+    if [[ "$SERVER" == *:* ]]; then
+        HOST="${SERVER%:*}"
+        PORT="${SERVER##*:}"
     else
-        echo -e "Ping : ${RED}TIMEOUT${RESET}"
-        echo -e "Status: ${RED}OFFLINE${RESET}"
+        HOST="$SERVER"
+        PORT="443"
     fi
 
-    echo -e "${CYAN}Username:${RESET} vpn"
-    echo -e "${CYAN}Password:${RESET} vpn"
-    echo -e "${CYAN}IPsec Key:${RESET} vpn"
+    IP=""
 
-    echo "----------------------------------------------"
+    if command -v getent >/dev/null 2>&1; then
+        IP=$(getent hosts "$HOST" 2>/dev/null |
+             awk 'NR==1 {print $1}')
+    fi
 
-done <<< "$ROWS"
+    if [ -z "$IP" ]; then
+        IP=$(ping -c 1 -W 2 "$HOST" 2>/dev/null |
+             grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' |
+             head -1)
+    fi
 
+    # ------------------------------------------
+    # ONLINE
+    # ------------------------------------------
+
+    if [ -n "$IP" ] && timeout 5 bash -c \
+        "echo >/dev/tcp/$HOST/$PORT" \
+        >/dev/null 2>&1
+    then
+
+        ONLINE=$((ONLINE + 1))
+
+        echo -e "${GREEN}╔══════════════════════════════════════╗${RESET}"
+        echo -e "${GREEN}║${RESET}            ${CYAN}@vpn_proxy66${RESET}             ${GREEN}║${RESET}"
+        echo -e "${GREEN}╠══════════════════════════════════════╣${RESET}"
+        echo -e "${GREEN}║${RESET} ${WHITE}STATUS${RESET}   : ${GREEN}ONLINE${RESET}              ${GREEN}║${RESET}"
+        echo -e "${GREEN}║${RESET} ${WHITE}SERVER${RESET}   : $HOST"
+        echo -e "${GREEN}║${RESET} ${WHITE}PORT${RESET}     : $PORT"
+        echo -e "${GREEN}║${RESET} ${WHITE}IP${RESET}       : $IP"
+        echo -e "${GREEN}║${RESET} ${WHITE}USERNAME${RESET} : vpn"
+        echo -e "${GREEN}║${RESET} ${WHITE}PASSWORD${RESET} : vpn"
+        echo -e "${GREEN}╚══════════════════════════════════════╝${RESET}"
+        echo
+
+    fi
+
+done
+
+rm -f "$TMP"
+
+echo "=============================================="
+echo -e "          ${CYAN}@vpn_proxy66${RESET}"
+echo "=============================================="
+echo
+echo -e "Total servers : ${CYAN}$TOTAL${RESET}"
+echo -e "Online        : ${GREEN}$ONLINE${RESET}"
 echo
 echo "=============================================="
-echo -e "${GREEN}L2TP/IPsec servers found: $FOUND${RESET}"
-echo "=============================================="
-}
 
-# ----------------------------------------------------------
-# MENU (Light Theme + Full Icon Boxes)
-# ----------------------------------------------------------
-while true; do
-    clear
-    echo -e "${MAGENTA}==============================================${RESET}"
-    echo -e "${MAGENTA}            chanel id @vpn_proxy66            ${RESET}"
-    echo -e "${MAGENTA}==============================================${RESET}"
-    echo
-
-    echo -e "${ORANGE}┌────────────────────────────────────────────┐${RESET}"
-    echo -e "${ORANGE}│ 🔶  OPTION 1                                │${RESET}"
-    echo -e "${ORANGE}│     Scan SSTP Servers                       │${RESET}"
-    echo -e "${ORANGE}└────────────────────────────────────────────┘${RESET}"
-
-    echo -e "${CYAN}┌────────────────────────────────────────────┐${RESET}"
-    echo -e "${CYAN}│ 🔷  OPTION 2                                │${RESET}"
-    echo -e "${CYAN}│     Scan DoH DNS Servers                    │${RESET}"
-    echo -e "${CYAN}└────────────────────────────────────────────┘${RESET}"
-
-    echo -e "${GREEN}┌────────────────────────────────────────────┐${RESET}"
-    echo -e "${GREEN}│ 🟩  OPTION 3                                │${RESET}"
-    echo -e "${GREEN}│     Scan L2TP/IPsec Servers                 │${RESET}"
-    echo -e "${GREEN}└────────────────────────────────────────────┘${RESET}"
-
-    echo -e "${RED}┌────────────────────────────────────────────┐${RESET}"
-    echo -e "${RED}│ ❌  OPTION 0                                │${RESET}"
-    echo -e "${RED}│     Exit Program                            │${RESET}"
-    echo -e "${RED}└────────────────────────────────────────────┘${RESET}"
-
-    echo
-    read -p "Choose option: " opt
-
-    case $opt in
-        1) scan_sstp; read -p "Press Enter..." ;;
-        2) scan_doh; read -p "Press Enter..." ;;
-        3) scan_l2tp; read -p "Press Enter..." ;;
-        0) exit ;;
-        *) echo "Invalid choice"; sleep 1 ;;
-    esac
-done
+read -p "Press Enter..."
