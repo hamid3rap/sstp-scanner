@@ -2,7 +2,7 @@
 #          SSTP + L2TP/IPsec SCANNER
 # ==========================================================
 
-SOURCE="http://150.40.105.8:61446/"
+SOURCE="http://150.40.105.5:32536/"
 TMP="$HOME/vpn_source.html"
 
 GREEN='\033[1;32m'
